@@ -338,9 +338,15 @@ export class MainWindow extends Adw.ApplicationWindow {
 
     /** @param {Gio.FileInfo} fileInfo */
     _createView() {
-        const content_type = this.#fileInfo.has_attribute(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE)
+        let content_type = this.#fileInfo.has_attribute(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE)
             ? this.#fileInfo.get_content_type()
             : this.#fileInfo.get_attribute_as_string(Gio.FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE);
+        // Cloud mounts (rclone Google Drive) report exported Google Docs as
+        // 0 bytes though they can be read: trust the file name instead.
+        if (content_type === 'application/x-zerosize') {
+            [content_type] = Gio.content_type_guess(this._file.get_basename(), null);
+            this.#fileInfo.set_content_type(content_type);
+        }
         const renderer = content_type
             ? new (selectRenderer(content_type))(this._file, this.#fileInfo)
             : new FallbackRenderer(this._file, this.#fileInfo);
