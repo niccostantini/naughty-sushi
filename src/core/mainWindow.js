@@ -368,14 +368,10 @@ export class MainWindow extends Adw.ApplicationWindow {
     }
 
     #localFileForRenderer() {
-        // Papers and the Office converters need a local file: map trash://
-        // to the real file, other GVfs locations to their FUSE path.
+        // Map trash:// and recent:// to the real file, so renderers that need
+        // a local file (Papers, Office conversion) get one.
         const target = this.#fileInfo.get_attribute_string(Gio.FILE_ATTRIBUTE_STANDARD_TARGET_URI);
-        if (target)
-            return Gio.File.new_for_uri(target);
-
-        const path = this._file.get_path();
-        return path ? Gio.File.new_for_path(path) : this._file;
+        return target ? Gio.File.new_for_uri(target) : this._file;
     }
 
     #openFile() {

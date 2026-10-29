@@ -5,6 +5,7 @@
  */
 
 import Adw from 'gi://Adw';
+import Gio from 'gi://Gio';
 import GioUnix from 'gi://GioUnix';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
@@ -78,7 +79,30 @@ export const Klass = class PdfRenderer extends Adw.Bin {
         return this._toolbar;
     }
 
+    // Papers and the Office converters only read local files, and GVfs maps
+    // even its FUSE paths back to archive://, smb://, sftp://: use a copy.
+    // shortcut: copies stay in ~/.cache/sushi, overwritten by name; add cleanup if the cache grows.
+    withLocalCopy(file, onReady) {
+        const dir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'sushi']);
+        GLib.mkdir_with_parents(dir, 0o700);
+        const copy = Gio.File.new_for_path(GLib.build_filenamev([dir, file.get_basename()]));
+        file.copy_async(copy, Gio.FileCopyFlags.OVERWRITE, GLib.PRIORITY_DEFAULT,
+            this.cancellable, null, (source, res) => {
+                try {
+                    source.copy_finish(res);
+                    onReady(copy);
+                } catch (error) {
+                    this.markFailed(error);
+                }
+            });
+    }
+
     _loadFile(file) {
+        if (!file.is_native()) {
+            this.withLocalCopy(file, copy => this._loadFile(copy));
+            return;
+        }
+
         this._job = PapersView.JobLoad.new();
         this._job.set_uri(file.get_uri());
 

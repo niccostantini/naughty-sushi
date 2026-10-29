@@ -7,6 +7,11 @@ import {Klass as PdfRenderer} from './pdf.js';
 import * as Libreoffice from './libreoffice.js';
 
 PdfRenderer.convertLibreoffice = (renderer, file) => {
+    if (!file.is_native()) {
+        renderer.withLocalCopy(file, copy => PdfRenderer.convertLibreoffice(renderer, copy));
+        return;
+    }
+
     Sushi.convert_libreoffice(file, renderer.cancellable, (o, res) => {
         try {
             const convertedFile = Sushi.convert_libreoffice_finish(res);
