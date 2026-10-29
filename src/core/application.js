@@ -17,13 +17,23 @@ const Format = imports.format;
 import {MainWindow} from './mainWindow.js';
 import {checkInitDumping} from '../util/development.js';
 
-class NautilusPreviewerSkeleton {
-    constructor(application, resource) {
-        this.application = application;
+// Removed upstream in 4a7449e, but Desktop Icons NG (Ubuntu's desktop)
+// still previews files through it.
+const NAUTILUS_PREVIEWER1_XML = `<node>
+  <interface name="org.gnome.NautilusPreviewer">
+    <method name="ShowFile">
+      <arg type="s" direction="in" name="uri"/>
+      <arg type="i" direction="in" name="parentXid"/>
+      <arg type="b" direction="in" name="closeIfAlreadyShown"/>
+    </method>
+    <method name="Close"/>
+  </interface>
+</node>`;
 
-        const bytes = Gio.resources_lookup_data(resource, 0);
-        this._skeleton = Gio.DBusExportedObject.wrapJSObject(
-            ByteArray.toString(bytes.toArray()), this);
+class NautilusPreviewerSkeleton {
+    constructor(application, xml) {
+        this.application = application;
+        this._skeleton = Gio.DBusExportedObject.wrapJSObject(xml, this);
     }
 
     get impl() {
@@ -48,9 +58,22 @@ class NautilusPreviewerSkeleton {
     }
 }
 
+class NautilusPreviewer1Skeleton extends NautilusPreviewerSkeleton {
+    constructor(application) {
+        super(application, NAUTILUS_PREVIEWER1_XML);
+    }
+
+    ShowFile(uri, parentXid, closeIfAlreadyShown) {
+        const windowHandle = parentXid ? `x11:${parentXid.toString(16)}` : '';
+        this.application.showFile(uri, windowHandle, closeIfAlreadyShown, '');
+    }
+}
+
 class NautilusPreviewer2Skeleton extends NautilusPreviewerSkeleton {
     constructor(application) {
-        super(application, '/org/gnome/NautilusPreviewer/org.gnome.NautilusPreviewer2.xml');
+        const bytes = Gio.resources_lookup_data(
+            '/org/gnome/NautilusPreviewer/org.gnome.NautilusPreviewer2.xml', 0);
+        super(application, ByteArray.toString(bytes.toArray()));
     }
 
     ShowFile(uri, windowHandle, closeIfAlreadyShown, activationToken) {
@@ -120,6 +143,8 @@ export class Application extends Adw.Application {
     vfunc_dbus_register(connection, path) {
         const actualPath = `/${pkg.name.replaceAll('.', '/')}`;
 
+        this._skeleton1 = new NautilusPreviewer1Skeleton(this);
+        this._skeleton1.export(connection, actualPath);
         this._skeleton2 = new NautilusPreviewer2Skeleton(this);
         this._skeleton2.export(connection, actualPath);
 
@@ -127,6 +152,7 @@ export class Application extends Adw.Application {
     }
 
     vfunc_dbus_unregister(connection, path) {
+        this._skeleton1.unexport(connection);
         this._skeleton2.unexport(connection);
 
         return super.vfunc_dbus_unregister(connection, path);
