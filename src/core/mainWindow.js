@@ -267,6 +267,7 @@ export class MainWindow extends Adw.ApplicationWindow {
                 Gio.FILE_ATTRIBUTE_STANDARD_ICON,
                 Gio.FILE_ATTRIBUTE_STANDARD_SIZE,
                 Gio.FILE_ATTRIBUTE_STANDARD_TYPE,
+                Gio.FILE_ATTRIBUTE_STANDARD_TARGET_URI,
                 Gio.FILE_ATTRIBUTE_TIME_MODIFIED,
                 METADATA_KEY_CUSTOM_ICON,
                 METADATA_KEY_CUSTOM_ICON_NAME].join(','),
@@ -348,9 +349,20 @@ export class MainWindow extends Adw.ApplicationWindow {
             this.#fileInfo.set_content_type(content_type);
         }
         const renderer = content_type
-            ? new (selectRenderer(content_type))(this._file, this.#fileInfo)
+            ? new (selectRenderer(content_type))(this.#localFileForRenderer(), this.#fileInfo)
             : new FallbackRenderer(this._file, this.#fileInfo);
         this.#loadRenderer(renderer);
+    }
+
+    #localFileForRenderer() {
+        // Papers and the Office converters need a local file: map trash://
+        // to the real file, other GVfs locations to their FUSE path.
+        const target = this.#fileInfo.get_attribute_string(Gio.FILE_ATTRIBUTE_STANDARD_TARGET_URI);
+        if (target)
+            return Gio.File.new_for_uri(target);
+
+        const path = this._file.get_path();
+        return path ? Gio.File.new_for_path(path) : this._file;
     }
 
     #openFile() {
