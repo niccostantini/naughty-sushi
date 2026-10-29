@@ -27,7 +27,7 @@ export const Klass = class PdfRenderer extends Adw.Bin {
             Template: 'resource:///org/gnome/NautilusPreviewer/ui/pdf.ui',
             InternalChildren: [
                 'model', 'view', 'toolbarBack', 'toolbarForward', 'pageLabel',
-                'toolbar',
+                'toolbar', 'annotationsContext', 'searchContext',
             ],
         }, this);
     }
@@ -40,8 +40,19 @@ export const Klass = class PdfRenderer extends Adw.Bin {
             papersInitialized = true;
         }
         GObject.type_ensure(PapersView.View);
+        // Papers 50: these are template objects now, not created by View
+        GObject.type_ensure(PapersView.DocumentModel);
+        GObject.type_ensure(PapersView.AnnotationModel);
+        GObject.type_ensure(PapersView.UndoContext);
+        GObject.type_ensure(PapersView.AnnotationsContext);
+        GObject.type_ensure(PapersView.SearchContext);
 
         super(constructProperties);
+
+        // Papers 50: View takes model and contexts through setters, not properties
+        this._view.set_model(this._model);
+        this._view.set_annotations_context(this._annotationsContext);
+        this._view.set_search_context(this._searchContext);
 
         if (contentTypes.includes(fileInfo.get_content_type()))
             this._loadFile(file);

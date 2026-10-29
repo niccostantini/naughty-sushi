@@ -7,27 +7,8 @@ template $Gjs_PdfRenderer: Adw.Bin {
     propagate-natural-height: true;
     propagate-natural-width: true;
 
-    child: PapersView.View view {
-      model: PapersView.DocumentModel model {
-        annotation-model: PapersView.AnnotationModel {};
-
-        continuous: true;
-        sizing-mode: fit_width;
-        page-changed => $_updatePageLabel();
-      };
-
-      annotations-context: PapersView.AnnotationsContext {
-        document-model: model;
-
-        undo-context: PapersView.UndoContext {
-          document-model: model;
-        };
-      };
-
-      search-context: PapersView.SearchContext {
-        document-model: model;
-      };
-    };
+    /* Papers 50 has no model/context properties on View: pdf.js sets them */
+    child: PapersView.View view {};
   };
 
   ShortcutController {
@@ -38,6 +19,27 @@ template $Gjs_PdfRenderer: Adw.Bin {
       action: "action(pdf.copy)";
     }
   }
+}
+
+PapersView.DocumentModel model {
+  annotation-model: PapersView.AnnotationModel {};
+
+  continuous: true;
+  sizing-mode: fit_width;
+  page-changed => $_updatePageLabel();
+}
+
+PapersView.UndoContext undoContext {
+  document-model: model;
+}
+
+PapersView.AnnotationsContext annotationsContext {
+  document-model: model;
+  undo-context: undoContext;
+}
+
+PapersView.SearchContext searchContext {
+  document-model: model;
 }
 
 Box toolbar {

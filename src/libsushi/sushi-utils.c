@@ -46,6 +46,7 @@ static void load_libreoffice (GTask *task);
 typedef struct {
   GFile *file;
   gchar *pdf_path;
+  gchar *x2t_params_path;
 
   gboolean checked_libreoffice_flatpak;
   gboolean have_libreoffice_flatpak;
@@ -57,6 +58,11 @@ task_data_free (TaskData *data)
   if (data->pdf_path) {
     g_unlink (data->pdf_path);
     g_free (data->pdf_path);
+  }
+
+  if (data->x2t_params_path) {
+    g_unlink (data->x2t_params_path);
+    g_free (data->x2t_params_path);
   }
 
   g_clear_object (&data->file);
@@ -171,6 +177,98 @@ check_libreoffice_flatpak (GTask       *task,
   return data->have_libreoffice_flatpak;
 }
 
+/* OnlyOffice Desktop Editors ship a headless converter, x2t. It needs the
+ * font index that the desktop app writes on its first start. */
+static const gchar *onlyoffice_x2t_paths[] = {
+  "/snap/onlyoffice-desktopeditors/current/opt/onlyoffice/desktopeditors/converter/x2t",
+  "/opt/onlyoffice/desktopeditors/converter/x2t",
+};
+
+static gchar *
+find_onlyoffice_fonts_dir (void)
+{
+  g_autofree gchar *snap_dir = g_build_filename (g_get_home_dir (), "snap",
+                                                 "onlyoffice-desktopeditors", "current",
+                                                 ".local", "share", "onlyoffice",
+                                                 "desktopeditors", "data", "fonts", NULL);
+  g_autofree gchar *native_dir = g_build_filename (g_get_user_data_dir (), "onlyoffice",
+                                                   "desktopeditors", "data", "fonts", NULL);
+  const gchar *dirs[] = { snap_dir, native_dir };
+
+  for (gsize i = 0; i < G_N_ELEMENTS (dirs); i++) {
+    g_autofree gchar *all_fonts = g_build_filename (dirs[i], "AllFonts.js", NULL);
+
+    if (g_file_test (all_fonts, G_FILE_TEST_IS_REGULAR))
+      return g_strdup (dirs[i]);
+  }
+
+  return NULL;
+}
+
+static gboolean
+load_onlyoffice (GTask       *task,
+                 const gchar *doc_path,
+                 const gchar *pdf_dir)
+{
+  TaskData *data = g_task_get_task_data (task);
+  const gchar *x2t_path = NULL;
+  g_autofree gchar *fonts_dir = NULL;
+  g_autofree gchar *all_fonts = NULL;
+  g_autofree gchar *temp_dir = NULL;
+  g_autofree gchar *params = NULL;
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GSubprocess) subprocess = NULL;
+
+  for (gsize i = 0; i < G_N_ELEMENTS (onlyoffice_x2t_paths); i++) {
+    if (g_file_test (onlyoffice_x2t_paths[i], G_FILE_TEST_IS_EXECUTABLE)) {
+      x2t_path = onlyoffice_x2t_paths[i];
+      break;
+    }
+  }
+
+  fonts_dir = find_onlyoffice_fonts_dir ();
+  if (x2t_path == NULL || fonts_dir == NULL)
+    return FALSE;
+
+  all_fonts = g_build_filename (fonts_dir, "AllFonts.js", NULL);
+  temp_dir = g_build_filename (pdf_dir, "x2t-tmp", NULL);
+  g_mkdir_with_parents (temp_dir, 0700);
+
+  /* 513 is x2t's code for PDF output */
+  params = g_markup_printf_escaped ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                                    "<TaskQueueDataConvert>"
+                                    "<m_sFileFrom>%s</m_sFileFrom>"
+                                    "<m_sFileTo>%s</m_sFileTo>"
+                                    "<m_nFormatTo>513</m_nFormatTo>"
+                                    "<m_sTempDir>%s</m_sTempDir>"
+                                    "<m_sAllFontsPath>%s</m_sAllFontsPath>"
+                                    "<m_sFontDir>%s</m_sFontDir>"
+                                    "</TaskQueueDataConvert>",
+                                    doc_path, data->pdf_path, temp_dir,
+                                    all_fonts, fonts_dir);
+
+  g_clear_pointer (&data->x2t_params_path, g_free);
+  data->x2t_params_path = g_strconcat (data->pdf_path, ".x2t.xml", NULL);
+  if (!g_file_set_contents (data->x2t_params_path, params, -1, &error)) {
+    g_warning ("Error writing OnlyOffice converter parameters: %s", error->message);
+    return FALSE;
+  }
+
+  g_debug ("Converting with OnlyOffice: %s %s", x2t_path, data->x2t_params_path);
+
+  subprocess = g_subprocess_new (G_SUBPROCESS_FLAGS_STDOUT_SILENCE |
+                                 G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+                                 &error, x2t_path, data->x2t_params_path, NULL);
+  if (subprocess == NULL) {
+    g_warning ("Error while spawning OnlyOffice converter: %s", error->message);
+    return FALSE;
+  }
+
+  g_subprocess_wait_async (subprocess, g_task_get_cancellable (task),
+                           libreoffice_done_cb, task);
+  return TRUE;
+}
+
 static void
 load_libreoffice (GTask *task)
 {
@@ -184,18 +282,6 @@ load_libreoffice (GTask *task)
   GCancellable *cancellable = g_task_get_cancellable (task);
   TaskData *data = g_task_get_task_data (task);
 
-  flatpak_path = g_find_program_in_path ("flatpak");
-  if (flatpak_path != NULL)
-    use_flatpak = check_libreoffice_flatpak (task, flatpak_path);
-
-  if (!use_flatpak) {
-    libreoffice_path = g_find_program_in_path ("libreoffice");
-    if (libreoffice_path == NULL) {
-      libreoffice_missing (task);
-      return;
-    }
-  }
-
   doc_path = g_file_get_path (data->file);
   doc_name = g_file_get_basename (data->file);
 
@@ -206,8 +292,22 @@ load_libreoffice (GTask *task)
   tmp_name = g_strdup_printf ("%s.pdf", doc_name);
 
   pdf_dir = g_build_filename (g_get_user_cache_dir (), "sushi", NULL);
+  g_clear_pointer (&data->pdf_path, g_free);
   data->pdf_path = g_build_filename (pdf_dir, tmp_name, NULL);
   g_mkdir_with_parents (pdf_dir, 0700);
+
+  flatpak_path = g_find_program_in_path ("flatpak");
+  if (flatpak_path != NULL)
+    use_flatpak = check_libreoffice_flatpak (task, flatpak_path);
+
+  if (!use_flatpak) {
+    libreoffice_path = g_find_program_in_path ("libreoffice");
+    if (libreoffice_path == NULL) {
+      if (!load_onlyoffice (task, doc_path, pdf_dir))
+        libreoffice_missing (task);
+      return;
+    }
+  }
 
   if (use_flatpak) {
     g_autofree gchar *flatpak_doc = g_strdup_printf ("--filesystem=%s:ro", doc_path);
