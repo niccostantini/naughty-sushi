@@ -171,7 +171,20 @@ export class MainWindow extends Adw.ApplicationWindow {
             // ignore errors in fallback handler to avoid recursion
             return;
         }
-        this.#loadRenderer(new FallbackRenderer(this._file, this.#fileInfo, error));
+        this.#loadRenderer(new FallbackRenderer(this._file,
+            this.#fileInfo ?? this.#placeholderFileInfo(), error));
+    }
+
+    #placeholderFileInfo() {
+        // The file could not be queried (unreachable or unmounted location)
+        const info = new Gio.FileInfo();
+        info.set_display_name(this._file.get_basename() ?? this._file.get_uri());
+        info.set_content_type('application/octet-stream');
+        info.set_file_type(Gio.FileType.UNKNOWN);
+        info.set_size(0);
+        info.set_modification_date_time(GLib.DateTime.new_now_local());
+        info.set_icon(Gio.ThemedIcon.new('text-x-generic'));
+        return info;
     }
 
     /** @returns {[number, number]} */
