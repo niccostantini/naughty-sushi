@@ -67,14 +67,16 @@ add_project_arguments(
   language: 'c',
 )
 
-base_name = 'org.gnome.NautilusPreviewer'
+# Naughty: own bus name, so this previewer can be installed next to gnome-sushi.
+base_name = 'io.github.niccostantini.Naughty.Previewer'
 if get_option('profile') == 'default'
   app_id = base_name
 else
   app_id = base_name + '.Devel'
 endif
 relative_object_path = '/@0@'.format(app_id.replace('.', '/'))
-fixed_object_path = '/@0@'.format(base_name.replace('.', '/'))
+# UI templates and plugins use this resource prefix verbatim.
+fixed_object_path = '/org/gnome/NautilusPreviewer'
 
 i18n = import('i18n')
 

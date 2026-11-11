@@ -106,7 +106,7 @@ libreoffice_missing (GTask *task)
                           g_variant_new ("(^asssa{sv})",
                                          libreoffice_path,
                                          "hide-confirm-deps",
-                                         "org.gnome.NautilusPreviewer",
+                                         "io.github.niccostantini.Naughty.Previewer",
                                          NULL),
                           NULL, G_DBUS_CALL_FLAGS_NONE,
                           G_MAXINT, NULL,
